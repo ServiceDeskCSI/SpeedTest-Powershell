@@ -11,6 +11,8 @@ $SaveJson, set to false to disable json log, default is c:\temp
 
 $TargetFolder, change to your desired location, default is c:\temp 
 
+$EnableCleanup, change to clean up zip, exe, and md file from the SpeedTest-CLI. It will keep the folder and logs.
+
 This will make a folder call speedtest under the target folder where everything is saved. 
 
 ```
