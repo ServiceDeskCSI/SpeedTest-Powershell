@@ -3,23 +3,23 @@
 # --------------------------------------------
 
 # Set to "true" to write the log file, or "false" to skip logging
-$SaveLog   = "true"
+$SaveLog          = "true"
 # Set to "true" to save the raw JSON, or "false" to skip saving JSON
-$SaveJson  = "true"
+$SaveJson         = "false"
 
 # How many times to retry on failure
-$MaxRetries        = 3
+$MaxRetries       = 3
 # Delay between retries (seconds)
-$RetryDelaySeconds = 5
+$RetryDelaySeconds= 5
 
 # Ookla Speedtest CLI download URL (win64)
-$Url         = "https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-win64.zip"
+$Url              = "https://install.speedtest.net/app/cli/ookla-speedtest-1.2.0-win64.zip"
 
 # Where to store everything
-$TargetFolder  = "C:\temp"
-$ExtractFolder = Join-Path $TargetFolder "speedtest"
-$TempZip       = Join-Path $TargetFolder "speedtest.zip"
-$ExePath       = Join-Path $ExtractFolder "speedtest.exe"
+$TargetFolder     = "C:\temp"
+$ExtractFolder    = Join-Path $TargetFolder "speedtest"
+$TempZip          = Join-Path $TargetFolder "speedtest.zip"
+$ExePath          = Join-Path $ExtractFolder "speedtest.exe"
 
 # --------------------------------------------
 # PREP: ensure folders exist
@@ -32,10 +32,10 @@ if (-not (Test-Path $ExtractFolder)) {
 # DOWNLOAD & EXTRACT (once)
 # --------------------------------------------
 if (-not (Test-Path $ExePath)) {
-    Write-Host "Downloading Speedtest CLI to $TempZip..."
+    #Write-Host "Downloading Speedtest CLI to $TempZip..."
     Invoke-WebRequest -Uri $Url -OutFile $TempZip -UseBasicParsing
 
-    Write-Host "Extracting to $ExtractFolder..."
+    #Write-Host "Extracting to $ExtractFolder..."
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [System.IO.Compression.ZipFile]::ExtractToDirectory($TempZip, $ExtractFolder)
 }
@@ -46,13 +46,24 @@ if (-not (Test-Path $ExePath)) {
 $attempt = 0
 do {
     $attempt++
-    Write-Host "Running Speedtest (attempt $attempt of $MaxRetries)…"
-    # capture stdout+stderr
-    $raw = & $ExePath --accept-license --accept-gdpr --format json 2>&1
+    #Write-Host "Running Speedtest (attempt $attempt of $MaxRetries)…"
+    # capture stdout+stderr as objects
+    $rawObjects = & $ExePath --accept-license --accept-gdpr --format json 2>&1
+    # convert everything to string
+    $rawLines  = $rawObjects | ForEach-Object { $_.ToString() }
+    $rawText   = $rawLines -join "`n"
 
-    # filter only JSON-looking lines
-    $jsonLines = $raw | Where-Object { $_.TrimStart().StartsWith('{') -or $_.TrimStart().StartsWith('[') }
-    $json      = $jsonLines -join "`n"
+    # locate JSON object within the output
+    $startIndex = $rawText.IndexOf('{')
+    $endIndex   = $rawText.LastIndexOf('}')
+    if ($startIndex -lt 0 -or $endIndex -lt $startIndex) {
+        Write-Warning "  → no JSON payload detected."
+        if ($attempt -lt $MaxRetries) { Start-Sleep -Seconds $RetryDelaySeconds; continue }
+        else { Write-Error "All $MaxRetries attempts failed: no JSON returned."; exit 1 }
+    }
+
+    # extract JSON substring
+    $json = $rawText.Substring($startIndex, $endIndex - $startIndex + 1)
 
     # try parse
     try {
@@ -78,10 +89,10 @@ do {
 # --------------------------------------------
 # EXTRACT METRICS
 # --------------------------------------------
-$Latency   = [math]::Round($data.ping.latency,  2)
-$Download  = [math]::Round(($data.download.bandwidth * 8) / 1MB, 2)
-$Upload    = [math]::Round(($data.upload.bandwidth   * 8) / 1MB, 2)
-$ResultURL = $data.result.url
+$Latency    = [math]::Round($data.ping.latency,  2)
+$Download   = [math]::Round(($data.download.bandwidth * 8) / 1MB, 2)
+$Upload     = [math]::Round(($data.upload.bandwidth   * 8) / 1MB, 2)
+$ResultURL  = $data.result.url
 
 # --------------------------------------------
 # SAVE RAW JSON (if enabled)
@@ -112,7 +123,7 @@ if ($SaveLog -eq "true") {
         "Result URL : $ResultURL"
     )
     $LogContent | Out-File -FilePath $LogFile -Encoding UTF8
-    #Write-Host "Results have been logged to: $LogFile"
+    #Write-Host "`nResults have been logged to: $LogFile"
 }
 
 # --------------------------------------------
